@@ -11,13 +11,26 @@ import { getCurrentRoomCode, setCurrentRoomCode } from "@/lib/roomState"
 import type { Socket } from "socket.io-client"
 import { Trash2 } from "lucide-react"
 import { UserBadge } from "@/lib/user-badge"
+import { toast } from "sonner"
+import { format } from "date-fns"
+import { fr } from "date-fns/locale"
 
 type Room = {
   code: string
   name: string
   isPrivate: boolean
   host: { email: string; pseudo?: string }
-  players: { id: string; pseudo: string, role: string }[]
+  players: { id: string; pseudo: string; role: string }[]
+  messages?: {
+    id: string
+    content: string
+    createdAt: string
+    user?: {
+      id: string
+      pseudo?: string | null
+      role: string
+    } | null
+  }[]
 }
 
 export default function RoomClient({ code }: { code: string }) {
@@ -25,7 +38,12 @@ export default function RoomClient({ code }: { code: string }) {
   const router = useRouter()
   const [room, setRoom] = useState<Room | null>(null)
   const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState("")
+  const [messages, setMessages] = useState<Room["messages"]>([])
   const socketRef = useRef<Socket | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const CHAT_COOLDOWN_MS = 1500
+  const lastMessageTimestampRef = { current: 0 }
 
   useEffect(() => {
     const fetchRoom = async () => {
@@ -37,6 +55,12 @@ export default function RoomClient({ code }: { code: string }) {
       const data = await res.json()
       setRoom(data)
       setLoading(false)
+
+      const msgRes = await fetch(`/api/room/${code}/messages`)
+      if (msgRes.ok) {
+        const msgs = await msgRes.json()
+        setMessages(msgs)
+      }
     }
 
     fetchRoom()
@@ -63,9 +87,14 @@ export default function RoomClient({ code }: { code: string }) {
       router.push("/")
     })
 
+    socket.on("new_message", (msg) => {
+      setMessages((prev) => [...(prev || []), msg])
+    })
+
     return () => {
       socket.off("room_update")
       socket.off("room_deleted")
+      socket.off("new_message")
     }
   }, [router, room])
 
@@ -76,9 +105,18 @@ export default function RoomClient({ code }: { code: string }) {
 
     if (getCurrentRoomCode() !== code) {
       socket.emit("join_room", code, session.user.id, session.user.pseudo || "")
+      socket.emit("send_message", {
+        roomCode: code,
+        userId: null,
+        content: `${session.user.pseudo || "Un joueur"} a rejoint la room.`,
+      })
       setCurrentRoomCode(code)
     }
   }, [code, session])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
 
   const handleDelete = async () => {
     if (!room || loading) return
@@ -95,6 +133,11 @@ export default function RoomClient({ code }: { code: string }) {
 
   const handleLeave = () => {
     if (!room || !session?.user || !socketRef.current) return
+    socketRef.current.emit("send_message", {
+      roomCode: room.code,
+      userId: null,
+      content: `${session.user.pseudo || "Un joueur"} a quitté la room.`,
+    })
     socketRef.current.emit("leave_room", room.code, session.user.id)
     setCurrentRoomCode(null)
     setRoom(null)
@@ -106,7 +149,33 @@ export default function RoomClient({ code }: { code: string }) {
     socketRef.current.emit("kick_player", room.code, playerId)
   }
 
-  if (loading) return <div className="p-4">Chargement...</div>
+  const handleSubmitMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = message.trim()
+    if (!trimmed || !session?.user || !socketRef.current) return
+
+    const now = Date.now()
+    if (now - lastMessageTimestampRef.current < CHAT_COOLDOWN_MS) {
+      toast.warning("Veuillez patienter avant d'envoyer un nouveau message.")
+      return
+    }
+    lastMessageTimestampRef.current = now
+
+    socketRef.current.emit("send_message", {
+      roomCode: code,
+      userId: session.user.id,
+      content: trimmed,
+    })
+
+    setMessage("")
+  }
+
+  if (loading)
+    return (
+      <div className="p-8 text-center text-muted-foreground italic animate-pulse">
+        Chargement de la room...
+      </div>
+    )
   if (!session || !room) return null
 
   const isHost = session.user.email === room.host.email
@@ -159,26 +228,56 @@ export default function RoomClient({ code }: { code: string }) {
             })}
           </ul>
         </section>
-
       </div>
 
       <div className="flex gap-4">
-        {isHost && (
+        {isHost ? (
           <Button variant="destructive" onClick={handleDelete}>
             Supprimer la room
           </Button>
+        ) : (
+          <Button onClick={handleLeave}>Quitter la room</Button>
         )}
-
-        <Button onClick={handleLeave}>Quitter la room</Button>
       </div>
 
-      <section className="space-y-4 mt-8">
+     <section className="space-y-4 mt-8">
         <h2 className="text-xl font-semibold">Chat</h2>
-        <div className="border rounded-lg h-64 p-4 overflow-y-auto bg-muted">
-          <div className="text-sm text-muted-foreground italic">Aucun message pour le moment</div>
+        <div className="border rounded-lg h-64 p-4 overflow-y-auto bg-muted text-sm space-y-2 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent">
+          {messages && messages.length > 0 ? (
+            messages.map((msg) => (
+              <div key={msg.id} className="pl-2">
+                <span className="text-muted-foreground mr-2">
+                  {format(new Date(msg.createdAt), "HH:mm", { locale: fr })}
+                </span>
+                {msg.user ? (
+                  <>
+                    {msg.user.role !== "GUEST" && (
+                      <UserBadge role={msg.user.role as "MOD" | "ADMIN"} size="sm" />
+                    )}
+                    <span className="font-semibold ml-1">
+                      {msg.user.pseudo || "Inconnu"}
+                    </span>
+                    : {msg.content}
+                  </>
+                ) : (
+                  <span className="text-xs italic text-muted-foreground">
+                    {msg.content}
+                  </span>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="text-muted-foreground italic">Aucun message pour le moment</div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
-        <form className="flex gap-2">
-          <Input placeholder="Votre message..." className="flex-1" />
+        <form className="flex gap-2" onSubmit={handleSubmitMessage}>
+          <Input
+            placeholder="Votre message..."
+            className="flex-1"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
           <Button type="submit">Envoyer</Button>
         </form>
       </section>

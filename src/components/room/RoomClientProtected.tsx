@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import RoomClient from "./RoomClient"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -26,13 +32,16 @@ export default function RoomClientProtected({ code }: Props) {
     fetch(`/api/room/${code}/meta`)
       .then((res) => res.json())
       .then((data) => {
-        setRoomIsPrivate(data?.isPrivate ?? false)
-        setHostId(data?.hostId ?? null)
+        const isPrivate = data?.isPrivate ?? false
+        const host = data?.hostId ?? null
+
+        setRoomIsPrivate(isPrivate)
+        setHostId(host)
 
         const isModerator = user?.role === "MOD" || user?.role === "ADMIN"
-        const isHost = user?.id === data?.hostId
+        const isHost = user?.id === host
 
-        if (!data?.isPrivate || isModerator || isHost) {
+        if (!isPrivate || isModerator || isHost) {
           setAuthorized(true)
         }
       })
@@ -40,6 +49,11 @@ export default function RoomClientProtected({ code }: Props) {
   }, [code, user?.id, user?.role])
 
   async function handleSubmit() {
+    if (!password || password.trim().length === 0) {
+      setError("Veuillez entrer un mot de passe.")
+      return
+    }
+
     const res = await fetch(`/api/room/${code}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -49,11 +63,16 @@ export default function RoomClientProtected({ code }: Props) {
     if (res.ok) {
       setAuthorized(true)
     } else {
-      setError("Mot de passe incorrect")
+      setError("Mot de passe incorrect.")
     }
   }
 
-  if (roomIsPrivate === null) return <div className="p-4">Chargement...</div>
+  if (roomIsPrivate === null)
+    return (
+      <div className="p-8 text-center text-muted-foreground italic animate-pulse">
+        Chargement de la room...
+      </div>
+    )
 
   if (!authorized && roomIsPrivate)
     return (
@@ -67,7 +86,10 @@ export default function RoomClientProtected({ code }: Props) {
             <Input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError("")
+              }}
               placeholder="••••••"
             />
             {error && <p className="text-sm text-red-500">{error}</p>}

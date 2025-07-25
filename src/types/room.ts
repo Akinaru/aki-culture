@@ -13,4 +13,14 @@ export type Room = {
     role?: string
     [key: string]: any
   }
+  messages?: {
+    id: string
+    content: string
+    createdAt: string
+    user?: {
+      id: string
+      pseudo?: string | null
+      role: string
+    } | null
+  }[]
 }

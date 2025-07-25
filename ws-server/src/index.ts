@@ -37,20 +37,42 @@ io.on("connection", (socket) => {
             roomId: room.id,
           },
         },
-        update: {
-          pseudo,
-        },
-        create: {
-          userId,
-          roomId: room.id,
-          pseudo,
-        },
+        update: { pseudo },
+        create: { userId, roomId: room.id, pseudo },
       })
 
       await sendRoomUpdate(roomCode)
       await sendRoomsUpdate()
     } catch (err) {
       console.error("❌ Erreur join_room :", err)
+    }
+  })
+
+  socket.on("send_message", async ({ roomCode, userId, content }) => {
+    try {
+      const room = await prisma.room.findUnique({ where: { code: roomCode } })
+      if (!room || !content || content.trim() === "") return
+
+      const message = await prisma.message.create({
+        data: {
+          content,
+          roomId: room.id,
+          userId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              pseudo: true,
+              role: true,
+            },
+          },
+        },
+      })
+
+      io.to(roomCode).emit("new_message", message)
+    } catch (err) {
+      console.error("❌ Erreur send_message :", err)
     }
   })
 
@@ -77,10 +99,7 @@ io.on("connection", (socket) => {
       if (!room) return
 
       await prisma.roomPlayer.deleteMany({
-        where: {
-          userId: playerId,
-          roomId: room.id,
-        },
+        where: { userId: playerId, roomId: room.id },
       })
 
       console.log(`🦶 Joueur ${playerId} kické de la room ${roomCode}`)
@@ -107,7 +126,6 @@ io.on("connection", (socket) => {
 
 function sanitizeHost(host: any) {
   if (!host || typeof host !== "object") return null
-
   return {
     pseudo: typeof host.pseudo === "string" ? host.pseudo : null,
     email: typeof host.email === "string" ? host.email : null,

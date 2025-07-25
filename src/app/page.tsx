@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
 import type { Room } from "@/types/room"
 
 export default function HomePage() {
@@ -54,6 +55,11 @@ export default function HomePage() {
   }, [session])
 
   async function handleCreateRoom() {
+    if (!name || name.trim().length < 3) {
+      toast.error("Le nom de la room doit contenir au moins 3 caractères.")
+      return
+    }
+
     setCreating(true)
 
     const res = await fetch("/api/room", {
@@ -75,7 +81,7 @@ export default function HomePage() {
       getSocket().emit("get_rooms")
       router.push(`/room/${data.code}`)
     } else {
-      alert(data.error || "Erreur inconnue")
+      toast.error(data.error || "Erreur inconnue")
     }
   }
 
