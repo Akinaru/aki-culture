@@ -82,6 +82,14 @@ export default function RoomClient({ code }: { code: string }) {
       }
     })
 
+    socket.on("player_kicked", ({ playerId }) => {
+      if (playerId === session?.user?.id) {
+        toast.error("Tu as été exclu de la room.")
+        setCurrentRoomCode(null)
+        router.push("/")
+      }
+    })
+
     socket.on("room_deleted", () => {
       setCurrentRoomCode(null)
       router.push("/")
@@ -95,6 +103,7 @@ export default function RoomClient({ code }: { code: string }) {
       socket.off("room_update")
       socket.off("room_deleted")
       socket.off("new_message")
+      socket.off("player_kicked")
     }
   }, [router, room])
 
@@ -147,6 +156,10 @@ export default function RoomClient({ code }: { code: string }) {
   const handleKick = (playerId: string) => {
     if (!room || !socketRef.current) return
     socketRef.current.emit("kick_player", room.code, playerId)
+    const kickedPlayer = room.players.find((p) => p.id === playerId)
+    toast.success(
+      `Joueur ${kickedPlayer?.pseudo || playerId} a été exclu.`
+    )
   }
 
   const handleSubmitMessage = async (e: React.FormEvent) => {
@@ -198,18 +211,18 @@ export default function RoomClient({ code }: { code: string }) {
           Joueurs : <strong>{room.players.length}</strong>
         </p>
 
-        <section className="mt-4">
-          <h2 className="font-semibold mb-2 text-sm text-muted-foreground">Liste des joueurs :</h2>
-          <ul className="text-sm space-y-1">
+        <section className="mt-6">
+          <h2 className="text-sm font-semibold text-muted-foreground mb-2">Liste des joueurs</h2>
+          <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
             {room.players.map((player) => {
               const isMe = player.id === session.user.id
               return (
-                <li key={player.id} className="flex items-center justify-between gap-2">
+                <li key={player.id} className="flex items-center justify-between px-4 py-2 bg-background transition">
                   <div className="flex items-center gap-2">
                     <UserBadge role={player.role as "ADMIN" | "MOD" | "GUEST"} size="sm" />
-                    <span>
+                    <span className="text-sm font-medium">
                       {player.pseudo}
-                      {isMe && " (vous)"}
+                      {isMe && <span className="text-muted-foreground"> (vous)</span>}
                     </span>
                   </div>
                   {isHost && !isMe && (
@@ -217,7 +230,7 @@ export default function RoomClient({ code }: { code: string }) {
                       size="icon"
                       variant="ghost"
                       onClick={() => handleKick(player.id)}
-                      className="text-red-500"
+                      className="text-destructive"
                       title="Exclure ce joueur"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -228,6 +241,7 @@ export default function RoomClient({ code }: { code: string }) {
             })}
           </ul>
         </section>
+
       </div>
 
       <div className="flex gap-4">

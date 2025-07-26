@@ -18,6 +18,7 @@ const io = new Server(server, {
 })
 
 const prisma = new PrismaClient()
+const disconnectTimeouts = new Map<string, NodeJS.Timeout>()
 
 io.on("connection", (socket) => {
   console.log("✅ Client connecté :", socket.id)
@@ -26,6 +27,17 @@ io.on("connection", (socket) => {
     try {
       socket.join(roomCode)
       console.log(`🔗 ${pseudo} (${socket.id}) a rejoint la room ${roomCode}`)
+
+      // Marquage pour le disconnect
+      socket.data.userId = userId
+      socket.data.roomCode = roomCode
+
+      // Annule le timeout si déjà prévu
+      const existingTimeout = disconnectTimeouts.get(userId)
+      if (existingTimeout) {
+        clearTimeout(existingTimeout)
+        disconnectTimeouts.delete(userId)
+      }
 
       const room = await prisma.room.findUnique({ where: { code: roomCode } })
       if (!room) return
@@ -103,6 +115,7 @@ io.on("connection", (socket) => {
       })
 
       console.log(`🦶 Joueur ${playerId} kické de la room ${roomCode}`)
+      io.to(roomCode).emit("player_kicked", { playerId })
       await sendRoomUpdate(roomCode)
       await sendRoomsUpdate()
     } catch (err) {
@@ -119,8 +132,47 @@ io.on("connection", (socket) => {
     await sendRoomsUpdate()
   })
 
-  socket.on("disconnect", () => {
+  io.emit("user_count", io.engine.clientsCount)
+
+  socket.on("disconnect", async () => {
     console.log("❌ Déconnexion :", socket.id)
+    io.emit("user_count", io.engine.clientsCount)
+
+    const userId = socket.data.userId
+    const roomCode = socket.data.roomCode
+    if (!userId || !roomCode) return
+
+    // Planifie suppression si non revenu dans 2 minutes
+    const timeout = setTimeout(async () => {
+      try {
+        const room = await prisma.room.findUnique({ where: { code: roomCode } })
+        if (!room) return
+
+        await prisma.roomPlayer.deleteMany({
+          where: { userId, roomId: room.id },
+        })
+
+        console.log(`⏱️ Utilisateur ${userId} supprimé de la room ${roomCode} après inactivité`)
+
+        // Envoie un message dans le chat
+        const message = await prisma.message.create({
+          data: {
+            content: `Un joueur a été retiré automatiquement après 2 minutes d'inactivité.`,
+            roomId: room.id,
+            userId: null,
+          },
+        })
+        io.to(roomCode).emit("new_message", message)
+
+        await sendRoomUpdate(roomCode)
+        await sendRoomsUpdate()
+        disconnectTimeouts.delete(userId)
+      } catch (err) {
+        console.error("❌ Erreur suppression inactivité :", err)
+      }
+    }, 2 * 60 * 1000)
+
+    disconnectTimeouts.set(userId, timeout)
   })
 })
 

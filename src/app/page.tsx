@@ -25,6 +25,7 @@ export default function HomePage() {
   const [password, setPassword] = useState("")
   const [isConnected, setIsConnected] = useState(false)
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null)
+  const [userCount, setUserCount] = useState<number | null>(null)
 
   const userId = session?.user?.id || "inconnu"
 
@@ -44,6 +45,9 @@ export default function HomePage() {
 
       setActiveRoomCode(foundRoom?.code ?? null)
     })
+    socket.on("user_count", (count: number) => {
+      setUserCount(count)
+    })
 
     socket.emit("get_rooms")
 
@@ -51,6 +55,7 @@ export default function HomePage() {
       socket.off("connect")
       socket.off("disconnect")
       socket.off("rooms_update")
+      socket.off("user_count")
     }
   }, [session])
 
@@ -106,17 +111,27 @@ export default function HomePage() {
 
   return (
     <main className="max-w-4xl mx-auto py-10 space-y-10">
-      <div className="text-sm text-muted-foreground text-center">
-        Statut connexion serveur :
-        {isConnected ? (
-          <span className="ml-2 text-green-600 font-semibold">🟢 Connecté</span>
-        ) : (
-          <span className="ml-2 text-red-500 font-semibold">🔴 Déconnecté</span>
-        )}
-      </div>
+      <div>
 
-      <div className="text-sm text-center text-muted-foreground">
-        Ton ID utilisateur : <code className="font-mono">{userId}</code>
+        <div className="text-sm text-muted-foreground">
+          Statut connexion serveur :
+          {isConnected ? (
+            <span className="ml-2 text-green-600 font-semibold">🟢 Connecté</span>
+          ) : (
+            <span className="ml-2 text-red-500 font-semibold">🔴 Déconnecté</span>
+          )}
+        </div>
+
+        <div className="text-sm text-muted-foreground">
+          Utilisateurs connectés au serveur :{" "}
+          <span className="font-medium">
+            {userCount !== null ? userCount : "Chargement..."}
+          </span>
+        </div>
+
+        <div className="text-sm text-muted-foreground">
+          Ton ID utilisateur : <code className="font-mono">{userId}</code>
+        </div>
       </div>
 
       <Card>
